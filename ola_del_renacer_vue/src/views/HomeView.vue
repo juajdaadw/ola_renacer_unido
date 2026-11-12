@@ -162,6 +162,10 @@
             <button v-show="esAdmin" class="boton-otro" style="margin-top: 20px; margin-left: 0;"
                 @click="irARegistro">REGISTRAR HABITANTE DE CALLE</button>
 
+            <!-- Solo se ve con sesión iniciada -->
+            <button v-show="haySesion" class="boton-otro" style="margin-top: 20px; margin-left: 0;"
+                @click="cerrarSesion">CERRAR SESIÓN</button>
+
         </footer>
     </div>
 </template>
@@ -172,6 +176,7 @@ export default {
     data() {
         return {
             rol: '',
+            token: '',
 
             cargando: false,
             errorApi: '',
@@ -197,6 +202,9 @@ export default {
     computed: {
         esAdmin() {
             return this.rol === 'admin';
+        },
+        haySesion() {
+            return !!this.token;
         },
         urlsBanner() {
             return this.banner.map(imagen => imagen.url);
@@ -288,10 +296,26 @@ export default {
         },
         irARegistro() {
             this.$router.push('/registrar-habitante');
+        },
+
+        async cerrarSesion() {
+            try {
+                await this.axios.post('/logout', {}, {
+                    headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+                });
+            } catch (e) {
+                console.log(e.message);
+            } finally {
+                // Se borra la sesión aunque la API falle
+                localStorage.removeItem('token');
+                localStorage.removeItem('rol');
+                this.$router.push('/login');
+            }
         }
     },
     created() {
         this.rol = localStorage.getItem('rol');
+        this.token = localStorage.getItem('token');
     },
     mounted() {
         this.cargarContenido();

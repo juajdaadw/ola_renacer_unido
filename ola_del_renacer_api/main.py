@@ -1,8 +1,9 @@
 import os
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -173,6 +174,53 @@ def ahora() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tokens de sesión en memoria: token -> {usuario, rol, expira}.
+# Se pierden si el servicio se reinicia o se duerme.
+# ---------------------------------------------------------------------------
+SESIONES = {}
+DURACION_TOKEN = timedelta(hours=2)
+
+
+def hora_actual() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def limpiar_vencidos():
+    momento = hora_actual()
+    vencidos = [t for t, s in SESIONES.items() if s["expira"] <= momento]
+    for t in vencidos:
+        del SESIONES[t]
+
+
+def error_401(detalle: str):
+    return HTTPException(
+        status_code=401, detail=detalle, headers={"WWW-Authenticate": "Bearer"}
+    )
+
+
+def verificar_token(authorization: Optional[str] = Header(default=None)) -> dict:
+    """Exige la cabecera 'Authorization: Bearer <token>' con un token vigente."""
+    limpiar_vencidos()
+    if not authorization:
+        raise error_401("Falta el token")
+    partes = authorization.split(" ")
+    if len(partes) != 2 or partes[0] != "Bearer" or not partes[1]:
+        raise error_401("Formato de token inválido")
+    token = partes[1]
+    sesion = SESIONES.get(token)
+    if sesion is None:
+        raise error_401("Token inválido o vencido")
+    return {"token": token, "usuario": sesion["usuario"], "rol": sesion["rol"]}
+
+
+def verificar_admin(sesion: dict = Depends(verificar_token)) -> dict:
+    # El rol sale del token guardado en el servidor, no del cliente
+    if sesion["rol"] != "admin":
+        raise HTTPException(status_code=403, detail="Se requiere rol admin")
+    return sesion
+
+
+# ---------------------------------------------------------------------------
 # Modelos (los nombres de los campos son los que debe enviar el frontend)
 # ---------------------------------------------------------------------------
 class Login(BaseModel):
@@ -233,7 +281,20 @@ def iniciar_sesion(datos: Login):
     usuario = USUARIOS.get(datos.usuario)
     if usuario is None or usuario["clave"] != datos.contrasena:
         return {"status": False, "mensaje": "Usuario o contraseña incorrectos"}
-    return {"status": True, "rol": usuario["rol"]}
+    limpiar_vencidos()
+    token = secrets.token_urlsafe(32)
+    SESIONES[token] = {
+        "usuario": datos.usuario,
+        "rol": usuario["rol"],
+        "expira": hora_actual() + DURACION_TOKEN,
+    }
+    return {"status": True, "rol": usuario["rol"], "token": token}
+
+
+@app.post("/logout")
+def cerrar_sesion(sesion: dict = Depends(verificar_token)):
+    SESIONES.pop(sesion["token"], None)
+    return {"status": True}
 
 
 @app.post("/contacto")
@@ -258,7 +319,7 @@ def guardar_reporte(datos: Reporte):
     return {"status": True, "id": registro["id"]}
 
 
-@app.post("/beneficiarios")
+@app.post("/beneficiarios", dependencies=[Depends(verificar_admin)])
 def guardar_beneficiario(datos: Beneficiario):
     registro = datos.model_dump()
     registro["id"] = len(beneficiarios) + 1

@@ -76,13 +76,22 @@ export default {
                     edad: h.edad === '' ? null : h.edad,
                     zona: h.zona,
                     observaciones: h.observaciones
-                });
+                }, { headers: { Authorization: 'Bearer ' + localStorage.getItem('token') } });
                 this.exito = 'Beneficiario registrado correctamente';
                 this.habitante = { nombre: '', edad: '', zona: 0, observaciones: '' };
             } catch (e) {
-                console.log(e);
+                console.log(e.message);
                 this.exito = '';
-                this.advertencia = 'No se pudo guardar el registro. Intenta de nuevo';
+                const estado = e.response ? e.response.status : null;
+                if (estado === 401) {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('rol');
+                    this.$router.push('/login');
+                } else if (estado === 403) {
+                    this.advertencia = 'No tienes permiso para registrar habitantes';
+                } else {
+                    this.advertencia = 'No se pudo guardar el registro. Intenta de nuevo';
+                }
             } finally {
                 this.guardando = false;
             }

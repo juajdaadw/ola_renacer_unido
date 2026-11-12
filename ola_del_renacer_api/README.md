@@ -22,13 +22,35 @@ uvicorn main:app --reload --port 8000
 |---|---|---|
 | GET | `/` | Comprobar que la API responde |
 | GET | `/imagenes/{seccion}` | Lista de imágenes. Secciones: `banner`, `galeria`, `actividades`, `blog`, `conocenos`, `login` |
-| POST | `/login` | Recibe `usuario` y `contrasena`; responde `status` y `rol` (sin token) |
+| POST | `/login` | Recibe `usuario` y `contrasena`; responde `status`, `rol` y `token` |
+| POST | `/logout` | **Requiere token.** Invalida el token enviado |
 | POST | `/contacto` | Guarda el formulario de contacto del Home |
 | POST | `/reportes` | Guarda un reporte de zona sucia |
-| POST | `/beneficiarios` | Guarda un habitante de calle (vista de admin) |
+| POST | `/beneficiarios` | **Requiere token de `admin`.** Guarda un habitante de calle |
 | GET | `/resumen` | Cuenta cuántos registros hay guardados (sin mostrar datos personales) |
 
 Usuarios de prueba (los mismos del proyecto original): `usuario` / `123` y `admin` / `admin`.
+
+## Autenticación con token
+
+1. `POST /login` con usuario y contraseña correctos responde `{"status": true, "rol": "...", "token": "..."}`.
+   Si fallan, responde `{"status": false, "mensaje": "..."}` como antes.
+2. El token es una cadena aleatoria (`secrets.token_urlsafe(32)`) que dura **2 horas**.
+   La API lo guarda en el diccionario `SESIONES` (token → usuario, rol y expiración) y borra los vencidos.
+3. Las llamadas protegidas envían la cabecera `Authorization: Bearer <token>`.
+4. `POST /logout` (con la misma cabecera) borra el token del servidor.
+
+Endpoints protegidos (dependencias `verificar_token` y `verificar_admin` en `main.py`):
+
+| Endpoint | Exige | Sin token / token inválido o vencido | Token válido sin rol `admin` |
+|---|---|---|---|
+| `POST /beneficiarios` | token de `admin` | 401 | 403 |
+| `POST /logout` | cualquier token válido | 401 | — |
+
+`/`, `/login`, `/imagenes/{seccion}`, `/contacto`, `/reportes` y `/resumen` siguen siendo públicos.
+El rol se toma siempre del token guardado en el servidor, nunca de lo que envíe el cliente.
+
+Para probar en `/docs`: haz login, copia el `token` y en el campo `authorization` del endpoint escribe `Bearer <token>`.
 
 `actividades` y `blog` devuelven además `titulo` (y `descripcion` en actividades).
 Las imágenes `playa1` a `playa4` están en la carpeta `static/` y se sirven en `/static/...`.
@@ -46,6 +68,8 @@ Las imágenes `playa1` a `playa4` están en la carpeta `static/` y se sirven en 
 ## Importante
 
 - Los datos de contacto, reportes y beneficiarios se guardan **en memoria**: se pierden cuando Render reinicia o duerme el servicio.
-- No hay token: el rol `admin` solo controla qué botones muestra el frontend. Cualquiera que conozca la URL de la API puede llamar a los endpoints.
+- Los tokens también viven **en memoria**: cuando la API se reinicia (por ejemplo cuando Render duerme el servicio) todos se pierden
+  y hay que volver a iniciar sesión. El frontend lo detecta (responde 401) y manda al login.
+- La API nunca imprime ni registra los tokens.
 - Por privacidad no existen endpoints para listar los beneficiarios, reportes ni contactos.
 - `playa1.png` (3.2 MB) y `playa2.png` (2.3 MB) son pesadas. Si el banner tarda en cargar, conviértelas a `.webp`.

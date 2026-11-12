@@ -73,6 +73,7 @@ export default {
                 });
 
                 if (data.status) {
+                    localStorage.setItem('token', data.token);
                     localStorage.setItem('rol', data.rol);
                     this.$router.push('/home');
                 } else {

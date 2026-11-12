@@ -33,13 +33,21 @@ const routes = [
   {
     path: '/registrar-habitante',
     name: 'registrar-habitante',
-    component: RegistrarHabitanteView
+    component: RegistrarHabitanteView,
+    meta: { requiereToken: true }
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(process.env.BASE_URL),
   routes
+})
+
+// Solo comodidad visual: la seguridad real la hace la API
+router.beforeEach((to) => {
+  if (to.meta.requiereToken && !localStorage.getItem('token')) {
+    return '/login';
+  }
 })
 
 export default router
